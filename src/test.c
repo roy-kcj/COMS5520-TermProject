@@ -1,36 +1,32 @@
-#include "bptree.h"
+#include "include/bptree.h"
+#include "include/storage.h"
+#include "include/fat32.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 
+int main() {
+    BPlusTree *tree = initialize_bplustree();
 
-void writer();
-
-void reader();
-
-void testRW();
-
-void testInsertRuntime(BPlusTree *tree, int num) {
-    double startTime, endTime;
-
-    printf("Testing %d inserts on B+ Tree... \n", num);
-    startTime = getCurrentTime();
-    
-    for (int i = 0; i < num; i++) {
-        char data[BLOCK_SIZE];
-        snprintf(data, BLOCK_SIZE, "Block data %d", i);
-        insert(tree, i, data);
+    // Test B+ Tree
+    bplustree_insert(tree, 1, "file1.txt");
+    bplustree_insert(tree, 2, "file2.txt");
+    char *result = (char *)bplustree_search(tree, 2);
+    if (result) {
+        printf("Found: %s\n", result);
     }
 
-    endTime = getCurrentTime();
-    printf("Time for %d inserts: %.6f seconds \n", num, endTime - startTime);
-}
+    bplustree_delete(tree, 1);
 
-// /test x y z (x for number of reader, y for number of writer, z for nunber of insert)
-int main(int argc, const char *agrv[]) {
-    
+    // Test FAT32
+    fat32_insert("fat32_file.txt", "FAT32 data");
+    char *fat32_result = fat32_search("fat32_file.txt");
+    if (fat32_result) {
+        printf("FAT32 Found: %s\n", fat32_result);
+        free(fat32_result);
+    }
+    fat32_delete("fat32_file.txt");
 
-    // Init Tree and Run different test
-    // testinsertRunTime(tree, insertNum);
+    // Cleanup
+    free_bplustree(tree);
     return 0;
 }
