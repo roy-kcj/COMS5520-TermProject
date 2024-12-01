@@ -1,31 +1,20 @@
+#include "bptree.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <pthread.h>
 
-#define MAX_KEYS 4  // B+ Tree order based on paper specifications
-#define MAX_FILENAME 256
-#define BITMAP_SIZE 1024  // For directory entry management
-
-// Node structure for B+ Tree
-typedef struct BPTreeNode {
-    bool isLeaf;
-    int numKeys;
-    char keys[MAX_KEYS][MAX_FILENAME];
-    void* values[MAX_KEYS];  // Generic pointer for values
-    struct BPTreeNode* children[MAX_KEYS + 1];
-    struct BPTreeNode* next;  // For leaf node linking
-    uint32_t bitmapAddress;   // Bitmap location for directory entries
-} BPTreeNode;
-
-// B+ Tree structure
-typedef struct {
-    BPTreeNode* root;
-    pthread_rwlock_t lock;
-    uint8_t* bitmap;         // Bitmap for directory management
-    uint32_t bitmapSize;
-} BPTree;
+// Helper function declarations
+static BPTreeNode* createNode(bool isLeaf);
+static BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
+static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
+static void insertNonFull(BPTreeNode* node, const char* key, void* value);
+static int findPosition(BPTreeNode* node, const char* key);
+static uint32_t allocateBitmapSpace(BPTree* tree);
+static void freeBitmapSpace(BPTree* tree, uint32_t address);
+static void cleanupTree(BPTreeNode* node);
+static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index);
+static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index);
+static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode);
 
 // Create new node
 BPTreeNode* createNode(bool isLeaf) {
@@ -40,31 +29,44 @@ BPTreeNode* createNode(bool isLeaf) {
     return node;
 }
 
-// Initialize B+ Tree
-BPTree* initializeBPTree() {
-    BPTree* tree = (BPTree*)malloc(sizeof(BPTree));
-    tree->root = createNode(true);
-    tree->bitmap = (uint8_t*)calloc(BITMAP_SIZE, sizeof(uint8_t));
-    tree->bitmapSize = BITMAP_SIZE;
-    pthread_rwlock_init(&tree->lock, NULL);
-    return tree;
+// Find position in node
+static int findPosition(BPTreeNode* node, const char* key) {
+    int i;
+    for (i = 0; i < node->numKeys; i++) {
+        if (strcmp(key, node->keys[i]) < 0) break;
+    }
+    return i;
+}
+
+// Bitmap management
+static uint32_t allocateBitmapSpace(BPTree* tree) {
+    for (uint32_t i = 0; i < tree->bitmapSize * 8; i++) {
+        if (!(tree->bitmap[i / 8] & (1 << (i % 8)))) {
+            tree->bitmap[i / 8] |= (1 << (i % 8));
+            return i;
+        }
+    }
+    return 0xFFFFFFFF;
+}
+
+static void freeBitmapSpace(BPTree* tree, uint32_t address) {
+    if (address < tree->bitmapSize * 8) {
+        tree->bitmap[address / 8] &= ~(1 << (address % 8));
+    }
 }
 
 // Find leaf node containing key
-BPTreeNode* findLeaf(BPTreeNode* root, const char* key) {
+static BPTreeNode* findLeaf(BPTreeNode* root, const char* key) {
     BPTreeNode* current = root;
     while (!current->isLeaf) {
-        int i;
-        for (i = 0; i < current->numKeys; i++) {
-            if (strcmp(key, current->keys[i]) < 0) break;
-        }
-        current = current->children[i];
+        int pos = findPosition(current, key);
+        current = current->children[pos];
     }
     return current;
 }
 
 // Split leaf node
-void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
+static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
     BPTreeNode* newNode = createNode(true);
     int mid = (MAX_KEYS + 1) / 2;
 
@@ -91,7 +93,7 @@ void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
 }
 
 // Insert into non-full node
-void insertNonFull(BPTreeNode* node, const char* key, void* value) {
+static void insertNonFull(BPTreeNode* node, const char* key, void* value) {
     int i = node->numKeys - 1;
     
     if (node->isLeaf) {
@@ -115,25 +117,91 @@ void insertNonFull(BPTreeNode* node, const char* key, void* value) {
     }
 }
 
-// Insert key-value pair
+// Balancing operations
+static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index) {
+    for (int i = node->numKeys; i > 0; i--) {
+        strcpy(node->keys[i], node->keys[i-1]);
+        node->values[i] = node->values[i-1];
+    }
+    
+    strcpy(node->keys[0], leftSibling->keys[leftSibling->numKeys-1]);
+    node->values[0] = leftSibling->values[leftSibling->numKeys-1];
+    strcpy(parent->keys[index-1], node->keys[0]);
+    
+    leftSibling->numKeys--;
+    node->numKeys++;
+}
+
+static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index) {
+    strcpy(node->keys[node->numKeys], rightSibling->keys[0]);
+    node->values[node->numKeys] = rightSibling->values[0];
+    
+    for (int i = 0; i < rightSibling->numKeys - 1; i++) {
+        strcpy(rightSibling->keys[i], rightSibling->keys[i+1]);
+        rightSibling->values[i] = rightSibling->values[i+1];
+    }
+    
+    strcpy(parent->keys[index], rightSibling->keys[0]);
+    node->numKeys++;
+    rightSibling->numKeys--;
+}
+
+static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode) {
+    int startIndex = leftNode->numKeys;
+    
+    for (int i = 0; i < rightNode->numKeys; i++) {
+        strcpy(leftNode->keys[startIndex + i], rightNode->keys[i]);
+        leftNode->values[startIndex + i] = rightNode->values[i];
+    }
+    
+    leftNode->next = rightNode->next;
+    leftNode->numKeys += rightNode->numKeys;
+    
+    free(rightNode);
+}
+
+// Core function implementations
+BPTree* initializeBPTree() {
+    BPTree* tree = (BPTree*)malloc(sizeof(BPTree));
+    tree->root = createNode(true);
+    tree->bitmap = (uint8_t*)calloc(BITMAP_SIZE, sizeof(uint8_t));
+    tree->bitmapSize = BITMAP_SIZE;
+    pthread_rwlock_init(&tree->lock, NULL);
+    return tree;
+}
+
 void insert(BPTree* tree, const char* key, void* value) {
     pthread_rwlock_wrlock(&tree->lock);
     
-    BPTreeNode* root = tree->root;
-    if (root->numKeys == MAX_KEYS) {
+    if (tree->root->numKeys == MAX_KEYS) {
         BPTreeNode* newRoot = createNode(false);
+        newRoot->children[0] = tree->root;
         tree->root = newRoot;
-        newRoot->children[0] = root;
-        splitLeaf(newRoot, 0, root);
+        splitLeaf(newRoot, 0, newRoot->children[0]);
         insertNonFull(newRoot, key, value);
     } else {
-        insertNonFull(root, key, value);
+        insertNonFull(tree->root, key, value);
     }
     
     pthread_rwlock_unlock(&tree->lock);
 }
 
-// Delete key from tree
+void* search(BPTree* tree, const char* key) {
+    pthread_rwlock_rdlock(&tree->lock);
+    
+    BPTreeNode* leaf = findLeaf(tree->root, key);
+    for (int i = 0; i < leaf->numKeys; i++) {
+        if (strcmp(leaf->keys[i], key) == 0) {
+            void* value = leaf->values[i];
+            pthread_rwlock_unlock(&tree->lock);
+            return value;
+        }
+    }
+    
+    pthread_rwlock_unlock(&tree->lock);
+    return NULL;
+}
+
 void delete(BPTree* tree, const char* key) {
     pthread_rwlock_wrlock(&tree->lock);
     
@@ -141,7 +209,7 @@ void delete(BPTree* tree, const char* key) {
     int i;
     for (i = 0; i < leaf->numKeys; i++) {
         if (strcmp(leaf->keys[i], key) == 0) {
-            // Shift remaining keys and values
+            freeBitmapSpace(tree, leaf->bitmapAddress);
             for (int j = i; j < leaf->numKeys - 1; j++) {
                 strcpy(leaf->keys[j], leaf->keys[j + 1]);
                 leaf->values[j] = leaf->values[j + 1];
@@ -154,24 +222,20 @@ void delete(BPTree* tree, const char* key) {
     pthread_rwlock_unlock(&tree->lock);
 }
 
-// Update key-value pair
 bool update(BPTree* tree, const char* oldKey, const char* newKey, void* newValue) {
     pthread_rwlock_wrlock(&tree->lock);
     
-    // Find and delete old key
     BPTreeNode* leaf = findLeaf(tree->root, oldKey);
     bool found = false;
     
     for (int i = 0; i < leaf->numKeys; i++) {
         if (strcmp(leaf->keys[i], oldKey) == 0) {
-            // If new key maintains order, update in place
             if ((i == 0 || strcmp(leaf->keys[i-1], newKey) < 0) &&
                 (i == leaf->numKeys-1 || strcmp(leaf->keys[i+1], newKey) > 0)) {
                 strcpy(leaf->keys[i], newKey);
                 leaf->values[i] = newValue;
                 found = true;
             } else {
-                // Delete and reinsert
                 delete(tree, oldKey);
                 insert(tree, newKey, newValue);
                 found = true;
@@ -184,8 +248,7 @@ bool update(BPTree* tree, const char* oldKey, const char* newKey, void* newValue
     return found;
 }
 
-// Clean up tree
-void cleanupTree(BPTreeNode* node) {
+static void cleanupTree(BPTreeNode* node) {
     if (!node->isLeaf) {
         for (int i = 0; i <= node->numKeys; i++) {
             cleanupTree(node->children[i]);
