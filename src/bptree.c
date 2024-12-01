@@ -7,7 +7,7 @@
 static BPTreeNode* createNode(bool isLeaf);
 static BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
 static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
-static void insertNonFull(BPTreeNode* node, const char* key, void* value);
+static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value);
 static int findPosition(BPTreeNode* node, const char* key);
 static uint32_t allocateBitmapSpace(BPTree* tree);
 static void freeBitmapSpace(BPTree* tree, uint32_t address);
@@ -70,7 +70,6 @@ static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
     BPTreeNode* newNode = createNode(true);
     int mid = (MAX_KEYS + 1) / 2;
 
-    // Copy upper half to new node
     for (int i = mid; i < child->numKeys; i++) {
         strcpy(newNode->keys[i - mid], child->keys[i]);
         newNode->values[i - mid] = child->values[i];
@@ -78,11 +77,9 @@ static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
     }
     child->numKeys = mid;
 
-    // Update leaf links
     newNode->next = child->next;
     child->next = newNode;
 
-    // Insert new key and pointer in parent
     for (int i = parent->numKeys; i > index; i--) {
         strcpy(parent->keys[i], parent->keys[i - 1]);
         parent->children[i + 1] = parent->children[i];
@@ -93,7 +90,7 @@ static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
 }
 
 // Insert into non-full node
-static void insertNonFull(BPTreeNode* node, const char* key, void* value) {
+static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value) {
     int i = node->numKeys - 1;
     
     if (node->isLeaf) {
@@ -161,16 +158,17 @@ static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode) {
 }
 
 // Core function implementations
-BPTree* initializeBPTree() {
+BPTree* initializeBPTree(FAT32_FileSystem* fs) {
     BPTree* tree = (BPTree*)malloc(sizeof(BPTree));
     tree->root = createNode(true);
     tree->bitmap = (uint8_t*)calloc(BITMAP_SIZE, sizeof(uint8_t));
     tree->bitmapSize = BITMAP_SIZE;
+    tree->fs = fs;
     pthread_rwlock_init(&tree->lock, NULL);
     return tree;
 }
 
-void insert(BPTree* tree, const char* key, void* value) {
+void insert(BPTree* tree, const char* key, FAT32_Entry* value) {
     pthread_rwlock_wrlock(&tree->lock);
     
     if (tree->root->numKeys == MAX_KEYS) {
@@ -186,13 +184,13 @@ void insert(BPTree* tree, const char* key, void* value) {
     pthread_rwlock_unlock(&tree->lock);
 }
 
-void* search(BPTree* tree, const char* key) {
+FAT32_Entry* search(BPTree* tree, const char* key) {
     pthread_rwlock_rdlock(&tree->lock);
     
     BPTreeNode* leaf = findLeaf(tree->root, key);
     for (int i = 0; i < leaf->numKeys; i++) {
         if (strcmp(leaf->keys[i], key) == 0) {
-            void* value = leaf->values[i];
+            FAT32_Entry* value = leaf->values[i];
             pthread_rwlock_unlock(&tree->lock);
             return value;
         }
@@ -222,7 +220,7 @@ void delete(BPTree* tree, const char* key) {
     pthread_rwlock_unlock(&tree->lock);
 }
 
-bool update(BPTree* tree, const char* oldKey, const char* newKey, void* newValue) {
+bool update(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* newValue) {
     pthread_rwlock_wrlock(&tree->lock);
     
     BPTreeNode* leaf = findLeaf(tree->root, oldKey);
