@@ -40,4 +40,11 @@ void delete(BPTree* tree, const char* key);
 bool update(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* newValue);
 void destroyBPTree(BPTree* tree);
 
+// Helper function declarations
+BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
+void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
+void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode);
+void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index);
+void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index);
+
 #endif
