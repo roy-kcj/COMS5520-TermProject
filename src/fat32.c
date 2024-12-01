@@ -69,3 +69,103 @@ static void split_child(BPTreeNode* parent, int index, BPTreeNode* child) {
     }
 }
 
+void fat32_insert(FAT32_FileSystem* fs, const char* filename, const char* data) {
+    if (!fs->root->key_count) {
+        strcpy(fs->root->keys[0], filename);
+        
+        FAT32_Entry* entry = (FAT32_Entry*)malloc(sizeof(FAT32_Entry));
+        strcpy(entry->filename, filename);
+        entry->start_cluster = allocate_cluster(fs);
+        entry->file_size = strlen(data);
+        entry->created_time = entry->modified_time = time(NULL);
+        
+        fs->root->entries[0] = entry;
+        fs->root->key_count = 1;
+        
+        // Write data to allocated cluster
+        // Implementation of actual disk write would go here
+        
+        return;
+    }
+
+    BPTreeNode* current = fs->root;
+    
+    if (current->key_count == B_TREE_ORDER - 1) {
+        BPTreeNode* new_root = create_node(false);
+        fs->root = new_root;
+        new_root->children[0] = current;
+        split_child(new_root, 0, current);
+        
+        int i = 0;
+        if (strcmp(new_root->keys[0], filename) < 0)
+            i++;
+        
+        BPTreeNode* child = new_root->children[i];
+        // Continue insertion in appropriate child
+        // Implementation continues...
+    }
+}
+
+char* fat32_search(FAT32_FileSystem* fs, const char* filename) {
+    BPTreeNode* current = fs->root;
+    
+    while (!current->is_leaf) {
+        int i;
+        for (i = 0; i < current->key_count; i++) {
+            if (strcmp(filename, current->keys[i]) < 0)
+                break;
+        }
+        current = current->children[i];
+    }
+    
+    for (int i = 0; i < current->key_count; i++) {
+        if (strcmp(current->keys[i], filename) == 0) {
+            // Read data from cluster
+            // Implementation of actual disk read would go here
+            return strdup("File found"); // Placeholder
+        }
+    }
+    
+    return NULL;
+}
+
+void fat32_delete(FAT32_FileSystem* fs, const char* filename) {
+    BPTreeNode* current = fs->root;
+    int found = 0;
+    
+    // Find and mark the cluster as free in bitmap
+    while (!current->is_leaf) {
+        int i;
+        for (i = 0; i < current->key_count; i++) {
+            if (strcmp(filename, current->keys[i]) < 0)
+                break;
+        }
+        current = current->children[i];
+    }
+    
+    for (int i = 0; i < current->key_count; i++) {
+        if (strcmp(current->keys[i], filename) == 0) {
+            uint32_t cluster = current->entries[i]->start_cluster;
+            fs->bitmap[cluster / 8] &= ~(1 << (cluster % 8));
+            free(current->entries[i]);
+            
+            // Shift remaining entries
+            for (int j = i; j < current->key_count - 1; j++) {
+                strcpy(current->keys[j], current->keys[j + 1]);
+                current->entries[j] = current->entries[j + 1];
+            }
+            current->key_count--;
+            found = 1;
+            break;
+        }
+    }
+}
+
+void fat32_cleanup(FAT32_FileSystem* fs) {
+    // Recursive cleanup of B+ tree nodes
+    // Free all allocated memory
+    free(fs->fat_table);
+    free(fs->bitmap);
+    // Implementation of B+ tree cleanup would go here
+    free(fs);
+}
