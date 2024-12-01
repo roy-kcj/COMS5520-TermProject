@@ -1,171 +1,158 @@
-// fat32.c
 #include "fat32.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
-static BPTreeNode* create_node(bool is_leaf) {
-    BPTreeNode* node = (BPTreeNode*)malloc(sizeof(BPTreeNode));
-    node->is_leaf = is_leaf;
-    node->key_count = 0;
-    node->next = NULL;
-    memset(node->keys, 0, sizeof(node->keys));
-    memset(node->children, 0, sizeof(node->children));
-    memset(node->entries, 0, sizeof(node->entries));
-    return node;
+// Helper function implementations
+static uint32_t cluster_to_sector(FAT32_FileSystem* fs, uint32_t cluster) {
+    return ((cluster - 2) * fs->sectorsPerCluster) + fs->reservedSectors + 
+           (fs->numberOfFATs * fs->sectorsPerFAT);
 }
 
-static uint32_t allocate_cluster(FAT32_FileSystem* fs) {
-    for (uint32_t i = 0; i < fs->total_clusters; i++) {
-        if (!(fs->bitmap[i / 8] & (1 << (i % 8)))) {
-            fs->bitmap[i / 8] |= (1 << (i % 8));
-            return i;
+static uint32_t allocate_clusters(FAT32_FileSystem* fs, uint32_t count) {
+    uint32_t start = 0;
+    uint32_t current = 0;
+    uint32_t found = 0;
+    
+    for (uint32_t i = 2; i < fs->totalSectors/fs->sectorsPerCluster; i++) {
+        if (get_next_cluster(fs, i) == 0) {
+            if (found == 0) start = i;
+            found++;
+            if (found == count) {
+                // Link clusters
+                for (uint32_t j = start; j < start + count - 1; j++) {
+                    set_next_cluster(fs, j, j + 1);
+                }
+                set_next_cluster(fs, start + count - 1, 0xFFFFFFFF);
+                return start;
+            }
+        } else {
+            found = 0;
         }
     }
-    return 0xFFFFFFFF;
+    return 0;
 }
 
+static void free_clusters(FAT32_FileSystem* fs, uint32_t startCluster) {
+    uint32_t current = startCluster;
+    uint32_t next;
+    
+    while (current != 0xFFFFFFFF && current != 0) {
+        next = get_next_cluster(fs, current);
+        set_next_cluster(fs, current, 0);
+        current = next;
+    }
+}
+
+// FAT table operations
+uint32_t get_next_cluster(FAT32_FileSystem* fs, uint32_t cluster) {
+    return fs->fatTable[cluster];
+}
+
+void set_next_cluster(FAT32_FileSystem* fs, uint32_t cluster, uint32_t next) {
+    fs->fatTable[cluster] = next;
+}
+
+// Core function implementations
 FAT32_FileSystem* fat32_init(uint32_t size) {
     FAT32_FileSystem* fs = (FAT32_FileSystem*)malloc(sizeof(FAT32_FileSystem));
-    fs->total_clusters = size / CLUSTER_SIZE;
-    fs->fat_table = (uint32_t*)calloc(fs->total_clusters, sizeof(uint32_t));
-    fs->bitmap = (uint8_t*)calloc(fs->total_clusters / 8 + 1, sizeof(uint8_t));
-    fs->root = create_node(true);
+    
+    fs->totalSectors = size / SECTOR_SIZE;
+    fs->sectorsPerCluster = CLUSTER_SIZE / SECTOR_SIZE;
+    fs->reservedSectors = 32;
+    fs->numberOfFATs = 2;
+    fs->sectorsPerFAT = (fs->totalSectors / fs->sectorsPerCluster * 4 + SECTOR_SIZE - 1) / SECTOR_SIZE;
+    fs->rootCluster = 2;
+    
+    // Allocate FAT table
+    uint32_t fatSize = fs->totalSectors / fs->sectorsPerCluster * sizeof(uint32_t);
+    fs->fatTable = (uint8_t*)calloc(fatSize, 1);
+    
+    // Allocate data region
+    fs->dataSize = size - (fs->reservedSectors + fs->numberOfFATs * fs->sectorsPerFAT) * SECTOR_SIZE;
+    fs->data = (uint8_t*)calloc(fs->dataSize, 1);
+    
+    // Initialize bitmap
+    fs->bitmapSize = fs->totalSectors / 8 + 1;
+    fs->bitmap = (uint8_t*)calloc(fs->bitmapSize, 1);
+    
     return fs;
 }
 
-static void split_child(BPTreeNode* parent, int index, BPTreeNode* child) {
-    BPTreeNode* new_node = create_node(child->is_leaf);
-    int mid = (B_TREE_ORDER - 1) / 2;
-
-    for (int i = 0; i < B_TREE_ORDER - mid - 1; i++) {
-        strcpy(new_node->keys[i], child->keys[i + mid + 1]);
-        new_node->entries[i] = child->entries[i + mid + 1];
-        child->entries[i + mid + 1] = NULL;
-    }
-
-    if (!child->is_leaf) {
-        for (int i = 0; i < B_TREE_ORDER - mid; i++) {
-            new_node->children[i] = child->children[i + mid + 1];
-            child->children[i + mid + 1] = NULL;
-        }
-    }
-
-    new_node->key_count = B_TREE_ORDER - mid - 1;
-    child->key_count = mid;
-
-    for (int i = parent->key_count; i > index; i--) {
-        strcpy(parent->keys[i], parent->keys[i - 1]);
-        parent->children[i + 1] = parent->children[i];
-    }
-
-    strcpy(parent->keys[index], child->keys[mid]);
-    parent->children[index + 1] = new_node;
-    parent->key_count++;
-
-    if (child->is_leaf) {
-        new_node->next = child->next;
-        child->next = new_node;
-    }
+FAT32_Entry* create_file_entry(FAT32_FileSystem* fs, const char* filename, uint32_t size) {
+    FAT32_Entry* entry = (FAT32_Entry*)malloc(sizeof(FAT32_Entry));
+    
+    strncpy(entry->filename, filename, MAX_FILENAME - 1);
+    entry->fileSize = size;
+    entry->attributes = ATTR_ARCHIVE;
+    entry->creationTime = entry->modificationTime = time(NULL);
+    
+    // Allocate clusters
+    uint32_t clustersNeeded = (size + CLUSTER_SIZE - 1) / CLUSTER_SIZE;
+    entry->startCluster = allocate_clusters(fs, clustersNeeded);
+    
+    return entry;
 }
 
-void fat32_insert(FAT32_FileSystem* fs, const char* filename, const char* data) {
-    if (!fs->root->key_count) {
-        strcpy(fs->root->keys[0], filename);
-        
-        FAT32_Entry* entry = (FAT32_Entry*)malloc(sizeof(FAT32_Entry));
-        strcpy(entry->filename, filename);
-        entry->start_cluster = allocate_cluster(fs);
-        entry->file_size = strlen(data);
-        entry->created_time = entry->modified_time = time(NULL);
-        
-        fs->root->entries[0] = entry;
-        fs->root->key_count = 1;
-        
-        // Write data to allocated cluster
-        // Implementation of actual disk write would go here
-        
-        return;
-    }
-
-    BPTreeNode* current = fs->root;
+bool fat32_write(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uint32_t size) {
+    if (!entry || !data || size == 0) return false;
     
-    if (current->key_count == B_TREE_ORDER - 1) {
-        BPTreeNode* new_root = create_node(false);
-        fs->root = new_root;
-        new_root->children[0] = current;
-        split_child(new_root, 0, current);
+    uint32_t cluster = entry->startCluster;
+    uint32_t remaining = size;
+    const uint8_t* buffer = (const uint8_t*)data;
+    
+    while (remaining > 0 && cluster != 0xFFFFFFFF) {
+        uint32_t sector = cluster_to_sector(fs, cluster);
+        uint32_t writeSize = (remaining < CLUSTER_SIZE) ? remaining : CLUSTER_SIZE;
         
-        int i = 0;
-        if (strcmp(new_root->keys[0], filename) < 0)
-            i++;
+        memcpy(fs->data + sector * SECTOR_SIZE, buffer, writeSize);
         
-        BPTreeNode* child = new_root->children[i];
-        // Continue insertion in appropriate child
-        // Implementation continues...
+        buffer += writeSize;
+        remaining -= writeSize;
+        cluster = get_next_cluster(fs, cluster);
     }
+    
+    entry->fileSize = size;
+    entry->modificationTime = time(NULL);
+    
+    return true;
 }
 
-char* fat32_search(FAT32_FileSystem* fs, const char* filename) {
-    BPTreeNode* current = fs->root;
+void* fat32_read(FAT32_FileSystem* fs, FAT32_Entry* entry) {
+    if (!entry || entry->fileSize == 0) return NULL;
     
-    while (!current->is_leaf) {
-        int i;
-        for (i = 0; i < current->key_count; i++) {
-            if (strcmp(filename, current->keys[i]) < 0)
-                break;
-        }
-        current = current->children[i];
+    uint8_t* buffer = (uint8_t*)malloc(entry->fileSize);
+    uint32_t cluster = entry->startCluster;
+    uint32_t remaining = entry->fileSize;
+    uint8_t* current = buffer;
+    
+    while (remaining > 0 && cluster != 0xFFFFFFFF) {
+        uint32_t sector = cluster_to_sector(fs, cluster);
+        uint32_t readSize = (remaining < CLUSTER_SIZE) ? remaining : CLUSTER_SIZE;
+        
+        memcpy(current, fs->data + sector * SECTOR_SIZE, readSize);
+        
+        current += readSize;
+        remaining -= readSize;
+        cluster = get_next_cluster(fs, cluster);
     }
     
-    for (int i = 0; i < current->key_count; i++) {
-        if (strcmp(current->keys[i], filename) == 0) {
-            // Read data from cluster
-            // Implementation of actual disk read would go here
-            return strdup("File found"); // Placeholder
-        }
-    }
-    
-    return NULL;
+    return buffer;
 }
 
-void fat32_delete(FAT32_FileSystem* fs, const char* filename) {
-    BPTreeNode* current = fs->root;
-    int found = 0;
+bool fat32_delete(FAT32_FileSystem* fs, FAT32_Entry* entry) {
+    if (!entry) return false;
     
-    // Find and mark the cluster as free in bitmap
-    while (!current->is_leaf) {
-        int i;
-        for (i = 0; i < current->key_count; i++) {
-            if (strcmp(filename, current->keys[i]) < 0)
-                break;
-        }
-        current = current->children[i];
-    }
+    free_clusters(fs, entry->startCluster);
+    free(entry);
     
-    for (int i = 0; i < current->key_count; i++) {
-        if (strcmp(current->keys[i], filename) == 0) {
-            uint32_t cluster = current->entries[i]->start_cluster;
-            fs->bitmap[cluster / 8] &= ~(1 << (cluster % 8));
-            free(current->entries[i]);
-            
-            // Shift remaining entries
-            for (int j = i; j < current->key_count - 1; j++) {
-                strcpy(current->keys[j], current->keys[j + 1]);
-                current->entries[j] = current->entries[j + 1];
-            }
-            current->key_count--;
-            found = 1;
-            break;
-        }
-    }
+    return true;
 }
 
 void fat32_cleanup(FAT32_FileSystem* fs) {
-    // Recursive cleanup of B+ tree nodes
-    // Free all allocated memory
-    free(fs->fat_table);
+    free(fs->fatTable);
+    free(fs->data);
     free(fs->bitmap);
-    // Implementation of B+ tree cleanup would go here
     free(fs);
 }
