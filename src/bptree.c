@@ -3,19 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// // Helper function declarations
-// static BPTreeNode* createNode(bool isLeaf);
-// static BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
-// static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
-// static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value);
-// static int findPosition(BPTreeNode* node, const char* key);
-// static uint32_t allocateBitmapSpace(BPTree* tree);
-// static void freeBitmapSpace(BPTree* tree, uint32_t address);
-// static void cleanupTree(BPTreeNode* node);
-// static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index);
-// static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index);
-// static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode);
-
 // Create new node
 BPTreeNode* createNode(bool isLeaf) {
     BPTreeNode* node = (BPTreeNode*)malloc(sizeof(BPTreeNode));
