@@ -1,16 +1,16 @@
-#include "fat32.h"
+#include "include/fat32.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 // Helper function implementations
-static uint32_t cluster_to_sector(FAT32_FileSystem* fs, uint32_t cluster) {
+uint32_t cluster_to_sector(FAT32_FileSystem* fs, uint32_t cluster) {
     return ((cluster - 2) * fs->sectorsPerCluster) + fs->reservedSectors + 
            (fs->numberOfFATs * fs->sectorsPerFAT);
 }
 
-static uint32_t allocate_clusters(FAT32_FileSystem* fs, uint32_t count) {
+uint32_t allocate_clusters(FAT32_FileSystem* fs, uint32_t count) {
     uint32_t start = 0;
     uint32_t current = 0;
     uint32_t found = 0;
@@ -34,7 +34,7 @@ static uint32_t allocate_clusters(FAT32_FileSystem* fs, uint32_t count) {
     return 0;
 }
 
-static void free_clusters(FAT32_FileSystem* fs, uint32_t startCluster) {
+void free_clusters(FAT32_FileSystem* fs, uint32_t startCluster) {
     uint32_t current = startCluster;
     uint32_t next;
     
@@ -95,8 +95,8 @@ FAT32_Entry* create_file_entry(FAT32_FileSystem* fs, const char* filename, uint3
     return entry;
 }
 
-bool fat32_write(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uint32_t size) {
-    if (!entry || !data || size == 0) return false;
+int fat32_write(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uint32_t size) {
+    if (!entry || !data || size == 0) return 0;
     
     uint32_t cluster = entry->startCluster;
     uint32_t remaining = size;
@@ -116,7 +116,7 @@ bool fat32_write(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uin
     entry->fileSize = size;
     entry->modificationTime = time(NULL);
     
-    return true;
+    return 1;
 }
 
 void* fat32_read(FAT32_FileSystem* fs, FAT32_Entry* entry) {
@@ -141,13 +141,13 @@ void* fat32_read(FAT32_FileSystem* fs, FAT32_Entry* entry) {
     return buffer;
 }
 
-bool fat32_delete(FAT32_FileSystem* fs, FAT32_Entry* entry) {
-    if (!entry) return false;
+int fat32_delete(FAT32_FileSystem* fs, FAT32_Entry* entry) {
+    if (!entry) return 0;
     
     free_clusters(fs, entry->startCluster);
     free(entry);
     
-    return true;
+    return 1;
 }
 
 void fat32_cleanup(FAT32_FileSystem* fs) {

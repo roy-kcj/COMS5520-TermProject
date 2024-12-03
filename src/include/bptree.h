@@ -1,29 +1,50 @@
 #ifndef BPTREE_H
 #define BPTREE_H
 
+#include <stdbool.h>
+#include <stdint.h>
 #include <pthread.h>
+#include "fat32.h"
 
-#define MAX_KEYS    25 // n keys and n+1 pointers
+// Constants for B+ Tree configuration
+#define MAX_KEYS 4
+#define MIN_KEYS (MAX_KEYS/2)
+#define MAX_FILENAME 256
+#define BITMAP_SIZE 1024
 
-typedef struct BPlusTreeNode {
-    int is_leaf;
-    int num_keys;
-    int keys[MAX_KEYS];
-    void *values[MAX_KEYS];  // For leaf nodes, store associated data (e.g., file names)
-    struct BPlusTreeNode *children[MAX_KEYS + 1];  // For internal nodes
-    struct BPlusTreeNode *next;  // Pointer to the next leaf node (used in leaf nodes)
-} BPlusTreeNode;
+// Node structure for B+ Tree
+typedef struct BPTreeNode {
+    bool isLeaf;                         // Flag indicating if node is a leaf
+    int numKeys;                         // Current number of keys in node
+    char keys[MAX_KEYS][MAX_FILENAME];   // Array of keys (filenames)
+    FAT32_Entry* values[MAX_KEYS];       // Array of FAT32 entries
+    struct BPTreeNode* children[MAX_KEYS + 1];  // Pointers to child nodes
+    struct BPTreeNode* next;             // Pointer to next leaf (for leaf nodes)
+    uint32_t bitmapAddress;              // Bitmap location for directory entries
+} BPTreeNode;
 
-typedef struct BPlusTree {
-    BPlusTreeNode *root;
-    pthread_rwlock_t lock;
-} BPlusTree;
+// B+ Tree structure
+typedef struct {
+    BPTreeNode* root;                    // Pointer to root node
+    pthread_rwlock_t lock;               // Read-write lock for thread safety
+    uint8_t* bitmap;                     // Bitmap for directory management
+    uint32_t bitmapSize;                 // Size of bitmap in bytes
+    FAT32_FileSystem* fs;                // Pointer to FAT32 file system
+} BPTree;
 
-// Function prototypes
-BPlusTree* initialize_bplustree();
-void bplustree_insert(BPlusTree *tree, int key, const char *value);
-void* bplustree_search(BPlusTree *tree, int key);
-void bplustree_delete(BPlusTree *tree, int key);
-void free_bplustree(BPlusTree *tree);
+// Core function declarations
+BPTree* initializeBPTree(FAT32_FileSystem* fs);
+void insert(BPTree* tree, const char* key, FAT32_Entry* value);
+FAT32_Entry* search(BPTree* tree, const char* key);
+void delete(BPTree* tree, const char* key);
+bool update(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* newValue);
+void destroyBPTree(BPTree* tree);
+
+// Helper function declarations
+BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
+void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
+void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode);
+void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index);
+void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index);
 
 #endif

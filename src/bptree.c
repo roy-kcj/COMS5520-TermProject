@@ -1,20 +1,20 @@
-#include "bptree.h"
+#include "include/bptree.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Helper function declarations
-static BPTreeNode* createNode(bool isLeaf);
-static BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
-static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
-static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value);
-static int findPosition(BPTreeNode* node, const char* key);
-static uint32_t allocateBitmapSpace(BPTree* tree);
-static void freeBitmapSpace(BPTree* tree, uint32_t address);
-static void cleanupTree(BPTreeNode* node);
-static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index);
-static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index);
-static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode);
+// // Helper function declarations
+// static BPTreeNode* createNode(bool isLeaf);
+// static BPTreeNode* findLeaf(BPTreeNode* root, const char* key);
+// static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child);
+// static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value);
+// static int findPosition(BPTreeNode* node, const char* key);
+// static uint32_t allocateBitmapSpace(BPTree* tree);
+// static void freeBitmapSpace(BPTree* tree, uint32_t address);
+// static void cleanupTree(BPTreeNode* node);
+// static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index);
+// static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index);
+// static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode);
 
 // Create new node
 BPTreeNode* createNode(bool isLeaf) {
@@ -30,7 +30,7 @@ BPTreeNode* createNode(bool isLeaf) {
 }
 
 // Find position in node
-static int findPosition(BPTreeNode* node, const char* key) {
+int findPosition(BPTreeNode* node, const char* key) {
     int i;
     for (i = 0; i < node->numKeys; i++) {
         if (strcmp(key, node->keys[i]) < 0) break;
@@ -39,7 +39,7 @@ static int findPosition(BPTreeNode* node, const char* key) {
 }
 
 // Bitmap management
-static uint32_t allocateBitmapSpace(BPTree* tree) {
+uint32_t allocateBitmapSpace(BPTree* tree) {
     for (uint32_t i = 0; i < tree->bitmapSize * 8; i++) {
         if (!(tree->bitmap[i / 8] & (1 << (i % 8)))) {
             tree->bitmap[i / 8] |= (1 << (i % 8));
@@ -49,14 +49,14 @@ static uint32_t allocateBitmapSpace(BPTree* tree) {
     return 0xFFFFFFFF;
 }
 
-static void freeBitmapSpace(BPTree* tree, uint32_t address) {
+void freeBitmapSpace(BPTree* tree, uint32_t address) {
     if (address < tree->bitmapSize * 8) {
         tree->bitmap[address / 8] &= ~(1 << (address % 8));
     }
 }
 
 // Find leaf node containing key
-static BPTreeNode* findLeaf(BPTreeNode* root, const char* key) {
+BPTreeNode* findLeaf(BPTreeNode* root, const char* key) {
     BPTreeNode* current = root;
     while (!current->isLeaf) {
         int pos = findPosition(current, key);
@@ -66,7 +66,7 @@ static BPTreeNode* findLeaf(BPTreeNode* root, const char* key) {
 }
 
 // Split leaf node
-static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
+void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
     BPTreeNode* newNode = createNode(true);
     int mid = (MAX_KEYS + 1) / 2;
 
@@ -90,7 +90,7 @@ static void splitLeaf(BPTreeNode* parent, int index, BPTreeNode* child) {
 }
 
 // Insert into non-full node
-static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value) {
+void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value) {
     int i = node->numKeys - 1;
     
     if (node->isLeaf) {
@@ -115,7 +115,7 @@ static void insertNonFull(BPTreeNode* node, const char* key, FAT32_Entry* value)
 }
 
 // Balancing operations
-static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index) {
+void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode* parent, int index) {
     for (int i = node->numKeys; i > 0; i--) {
         strcpy(node->keys[i], node->keys[i-1]);
         node->values[i] = node->values[i-1];
@@ -129,7 +129,7 @@ static void borrowFromLeft(BPTreeNode* node, BPTreeNode* leftSibling, BPTreeNode
     node->numKeys++;
 }
 
-static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index) {
+void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNode* parent, int index) {
     strcpy(node->keys[node->numKeys], rightSibling->keys[0]);
     node->values[node->numKeys] = rightSibling->values[0];
     
@@ -143,7 +143,7 @@ static void borrowFromRight(BPTreeNode* node, BPTreeNode* rightSibling, BPTreeNo
     rightSibling->numKeys--;
 }
 
-static void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode) {
+void mergeNodes(BPTreeNode* leftNode, BPTreeNode* rightNode) {
     int startIndex = leftNode->numKeys;
     
     for (int i = 0; i < rightNode->numKeys; i++) {
@@ -246,7 +246,7 @@ bool update(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* n
     return found;
 }
 
-static void cleanupTree(BPTreeNode* node) {
+void cleanupTree(BPTreeNode* node) {
     if (!node->isLeaf) {
         for (int i = 0; i <= node->numKeys; i++) {
             cleanupTree(node->children[i]);
