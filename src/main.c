@@ -31,7 +31,7 @@ int main() {
         }
 
         switch (input[0]) {
-            case 'test':
+            case 't':
                 // Initialize FAT32 file system (1MB size)
                 printf("Initializing FAT32 file system...\n");
                 FAT32_FileSystem* fs = fat32_init(1024 * 1024);
