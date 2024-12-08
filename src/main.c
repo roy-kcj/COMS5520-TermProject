@@ -1,8 +1,26 @@
 #include "bptree.h"
 #include "fat32.h"
+#include "include/distributed.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+void* performCriticalOperations(void* arg) {
+    DistributedNode* node = (DistributedNode*)arg;
+
+    // Request token to enter critical section
+    requestToken(node);
+
+    // Perform critical operations (modify B+ Tree or FAT32 file system)
+    printf("Node %d: Performing critical operations...\n", node->nodeId);
+    sleep(2); // Simulate operation
+
+    // Release token
+    releaseToken(node);
+
+    return NULL;
+}
 
 // Helper function to print file information
 void print_file_info(const char* operation, const char* filename, FAT32_Entry* entry) {
@@ -31,7 +49,7 @@ int main() {
         }
 
         switch (input[0]) {
-            case 't':
+            case 't': {
                 // Initialize FAT32 file system (1MB size)
                 printf("Initializing FAT32 file system...\n");
                 FAT32_FileSystem* fs = fat32_init(1024 * 1024);
@@ -115,8 +133,6 @@ int main() {
                     printf("Deleted: %s\n\n", filenames[2]);
                 }
 
-<<<<<<< Updated upstream
-=======
                 printf("Test Case 1: Bulk Insert Performance\n");
                 if (!fs || !tree || !tree->root) {
                     printf("File system or B+ Tree not properly initialized\n");
@@ -249,7 +265,7 @@ int main() {
                 printf("Sequential access time: %.2f ms\n", seq_time);
                 printf("Random access time: %.2f ms\n\n", rand_time);
                 
->>>>>>> Stashed changes
+
                 // Performance test
                 printf("=== Performance Test ===\n\n");
                 start = clock();
@@ -268,13 +284,39 @@ int main() {
                 fat32_cleanup(fs);
                 printf("Cleanup completed successfully\n");
                 break;
-
-            case 's':
+            }
+            case 's': {
             
                 break;
-        
-            default:
+            }
+            case 'd': {
+                int totalNodes = 3; // Example: 3 nodes in the distributed system
+                DistributedNode* nodes[totalNodes];
+
+                for (int i = 0; i < totalNodes; i++) {
+                    nodes[i] = initializeNode(i, totalNodes, i == 0); // Node 0 starts with the token
+                }
+
+                // Start threads for each node to simulate distributed operations
+                pthread_t threads[totalNodes];
+                for (int i = 0; i < totalNodes; i++) {
+                    pthread_create(&threads[i], NULL, performCriticalOperations, (void*)nodes[i]);
+                }
+
+                // Join threads
+                for (int i = 0; i < totalNodes; i++) {
+                    pthread_join(threads[i], NULL);
+                }
+
+                // Cleanup
+                for (int i = 0; i < totalNodes; i++) {
+                    free(nodes[i]);
+                }
                 break;
+            }
+            default: {
+                break;
+            }
         }
     }
     
