@@ -199,6 +199,30 @@ int main() {
                 printf("Time to handle 1MB file: %.2f ms\n\n", 
                        (double)(clock() - start) / CLOCKS_PER_SEC * 1000);
                 free(large_content);
+
+                // Sequential vs Random Access
+                printf("Test Case 8: Sequential vs Random Access\n");
+                start = clock();
+                
+                // Sequential access
+                for (int i = 0; i < 1000; i++) {
+                    char filename[32];
+                    sprintf(filename, "seq_file_%d.txt", i);
+                    FAT32_Entry* entry = search(tree, filename);
+                }
+                double seq_time = (double)(clock() - start) / CLOCKS_PER_SEC * 1000;
+                
+                // Random access
+                start = clock();
+                for (int i = 0; i < 1000; i++) {
+                    char filename[32];
+                    sprintf(filename, "seq_file_%d.txt", rand() % 1000);
+                    FAT32_Entry* entry = search(tree, filename);
+                }
+                double rand_time = (double)(clock() - start) / CLOCKS_PER_SEC * 1000;
+                
+                printf("Sequential access time: %.2f ms\n", seq_time);
+                printf("Random access time: %.2f ms\n\n", rand_time);
                 
                 // Performance test
                 printf("=== Performance Test ===\n\n");
