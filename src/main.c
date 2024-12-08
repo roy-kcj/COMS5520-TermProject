@@ -115,6 +115,91 @@ int main() {
                     printf("Deleted: %s\n\n", filenames[2]);
                 }
 
+                // Bulk Insert Test
+                printf("Test Case 1: Bulk Insert Performance\n");
+                clock_t start = clock();
+                for (int i = 0; i < 1000; i++) {
+                    char filename[32];
+                    char content[64];
+                    sprintf(filename, "test_file_%d.txt", i);
+                    sprintf(content, "Content for file %d", i);
+                    FAT32_Entry* entry = create_file_entry(fs, filename, strlen(content));
+                    fat32_write(fs, entry, content, strlen(content));
+                    insert(tree, filename, entry);
+                }
+                printf("Time to insert 1000 files: %.2f ms\n\n", 
+                       (double)(clock() - start) / CLOCKS_PER_SEC * 1000);
+
+                // Random Access Test
+                printf("Test Case 3: Random Access Performance\n");
+                start = clock();
+                for (int i = 0; i < 1000; i++) {
+                    char filename[32];
+                    sprintf(filename, "test_file_%d.txt", rand() % 1000);
+                    FAT32_Entry* entry = search(tree, filename);
+                    if (entry) {
+                        void* content = fat32_read(fs, entry);
+                        free(content);
+                    }
+                }
+                printf("Time for 1000 random accesses: %.2f ms\n\n", 
+                       (double)(clock() - start) / CLOCKS_PER_SEC * 1000);
+
+                // Sequential Update Test
+                printf("Test Case 3: Sequential Update Performance\n");
+                start = clock();
+                for (int i = 0; i < 100; i++) {
+                    char old_name[32], new_name[32];
+                    sprintf(old_name, "test_file_%d.txt", i);
+                    sprintf(new_name, "updated_file_%d.txt", i);
+                    FAT32_Entry* entry = search(tree, old_name);
+                    if (entry) {
+                        update(tree, old_name, new_name, entry);
+                    }
+                }
+                printf("Time to update 100 files: %.2f ms\n\n", 
+                       (double)(clock() - start) / CLOCKS_PER_SEC * 1000);
+
+                // Mixed Operations Test
+                printf("Test Case 4: Mixed Operations Performance\n");
+                start = clock();
+                for (int i = 0; i < 100; i++) {
+                    // Insert
+                    char filename[32];
+                    sprintf(filename, "mixed_file_%d.txt", i);
+                    FAT32_Entry* entry = create_file_entry(fs, filename, 64);
+                    insert(tree, filename, entry);
+            
+                    // Search
+                    entry = search(tree, filename);
+            
+                    // Update
+                    if (entry && i % 2 == 0) {
+                        char new_name[32];
+                        sprintf(new_name, "mixed_updated_%d.txt", i);
+                        update(tree, filename, new_name, entry);
+                    }
+            
+                    // Delete
+                    if (i % 3 == 0) {
+                        delete(tree, filename);
+                    }
+                }
+                printf("Time for 100 mixed operations: %.2f ms\n\n", 
+                       (double)(clock() - start) / CLOCKS_PER_SEC * 1000);
+
+                // Large File Test
+                printf("Test Case 5: Large File Handling\n");
+                start = clock();
+                char* large_content = (char*)malloc(1024 * 1024); // 1MB content
+                memset(large_content, 'X', 1024 * 1024);
+                FAT32_Entry* large_entry = create_file_entry(fs, "large_file.txt", 1024 * 1024);
+                fat32_write(fs, large_entry, large_content, 1024 * 1024);
+                insert(tree, "large_file.txt", large_entry);
+                printf("Time to handle 1MB file: %.2f ms\n\n", 
+                       (double)(clock() - start) / CLOCKS_PER_SEC * 1000);
+                free(large_content);
+                
                 // Performance test
                 printf("=== Performance Test ===\n\n");
                 clock_t start = clock();
