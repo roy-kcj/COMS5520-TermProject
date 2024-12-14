@@ -1,4 +1,5 @@
 #include "include/bptree.h"
+#include "include/distributed.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -156,6 +157,7 @@ BPTree* initializeBPTree(FAT32_FileSystem* fs) {
 }
 
 void insert(BPTree* tree, const char* key, FAT32_Entry* value) {
+    
     pthread_rwlock_wrlock(&tree->lock);
     
     if (tree->root->numKeys == MAX_KEYS) {
@@ -169,6 +171,24 @@ void insert(BPTree* tree, const char* key, FAT32_Entry* value) {
     }
     
     pthread_rwlock_unlock(&tree->lock);
+}
+
+void insert_dme(BPTree* tree, const char* key, FAT32_Entry* value, DistributedNode *node) {
+    requestToken(node);
+    pthread_rwlock_wrlock(&tree->lock);
+    
+    if (tree->root->numKeys == MAX_KEYS) {
+        BPTreeNode* newRoot = createNode(false);
+        newRoot->children[0] = tree->root;
+        tree->root = newRoot;
+        splitLeaf(newRoot, 0, newRoot->children[0]);
+        insertNonFull(newRoot, key, value);
+    } else {
+        insertNonFull(tree->root, key, value);
+    }
+    
+    pthread_rwlock_unlock(&tree->lock);
+    releaseToken(node);
 }
 
 FAT32_Entry* search(BPTree* tree, const char* key) {
@@ -207,6 +227,28 @@ void delete(BPTree* tree, const char* key) {
     pthread_rwlock_unlock(&tree->lock);
 }
 
+void delete_dme(BPTree* tree, const char* key, DistributedNode *node) {
+    requestToken(node);
+    pthread_rwlock_wrlock(&tree->lock);
+    
+    BPTreeNode* leaf = findLeaf(tree->root, key);
+    int i;
+    for (i = 0; i < leaf->numKeys; i++) {
+        if (strcmp(leaf->keys[i], key) == 0) {
+            freeBitmapSpace(tree, leaf->bitmapAddress);
+            for (int j = i; j < leaf->numKeys - 1; j++) {
+                strcpy(leaf->keys[j], leaf->keys[j + 1]);
+                leaf->values[j] = leaf->values[j + 1];
+            }
+            leaf->numKeys--;
+            break;
+        }
+    }
+    
+    pthread_rwlock_unlock(&tree->lock);
+    releaseToken(node);
+}
+
 bool update(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* newValue) {
     pthread_rwlock_wrlock(&tree->lock);
     
@@ -230,6 +272,34 @@ bool update(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* n
     }
     
     pthread_rwlock_unlock(&tree->lock);
+    return found;
+}
+
+bool update_dme(BPTree* tree, const char* oldKey, const char* newKey, FAT32_Entry* newValue, DistributedNode *node) {
+    requestToken(node);
+    pthread_rwlock_wrlock(&tree->lock);
+    
+    BPTreeNode* leaf = findLeaf(tree->root, oldKey);
+    bool found = false;
+    
+    for (int i = 0; i < leaf->numKeys; i++) {
+        if (strcmp(leaf->keys[i], oldKey) == 0) {
+            if ((i == 0 || strcmp(leaf->keys[i-1], newKey) < 0) &&
+                (i == leaf->numKeys-1 || strcmp(leaf->keys[i+1], newKey) > 0)) {
+                strcpy(leaf->keys[i], newKey);
+                leaf->values[i] = newValue;
+                found = true;
+            } else {
+                delete(tree, oldKey);
+                insert(tree, newKey, newValue);
+                found = true;
+            }
+            break;
+        }
+    }
+    
+    pthread_rwlock_unlock(&tree->lock);
+    releaseToken(node);
     return found;
 }
 

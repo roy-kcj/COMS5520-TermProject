@@ -1,4 +1,5 @@
 #include "include/fat32.h"
+#include "include/distributed.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,6 +82,7 @@ FAT32_FileSystem* fat32_init(uint32_t size) {
 }
 
 FAT32_Entry* create_file_entry(FAT32_FileSystem* fs, const char* filename, uint32_t size) {
+
     FAT32_Entry* entry = (FAT32_Entry*)malloc(sizeof(FAT32_Entry));
     
     strncpy(entry->filename, filename, MAX_FILENAME - 1);
@@ -95,7 +97,27 @@ FAT32_Entry* create_file_entry(FAT32_FileSystem* fs, const char* filename, uint3
     return entry;
 }
 
+FAT32_Entry* create_file_entry_dme(FAT32_FileSystem* fs, const char* filename, uint32_t size, DistributedNode *node) {
+    requestToken(node);
+
+    FAT32_Entry* entry = (FAT32_Entry*)malloc(sizeof(FAT32_Entry));
+    
+    strncpy(entry->filename, filename, MAX_FILENAME - 1);
+    entry->fileSize = size;
+    entry->attributes = ATTR_ARCHIVE;
+    entry->creationTime = entry->modificationTime = time(NULL);
+    
+    // Allocate clusters
+    uint32_t clustersNeeded = (size + CLUSTER_SIZE - 1) / CLUSTER_SIZE;
+    entry->startCluster = allocate_clusters(fs, clustersNeeded);
+    
+    releaseToken(node);
+    return entry;
+}
+
 int fat32_write(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uint32_t size) {
+
+
     if (!entry || !data || size == 0) return 0;
     
     uint32_t cluster = entry->startCluster;
@@ -116,6 +138,33 @@ int fat32_write(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uint
     entry->fileSize = size;
     entry->modificationTime = time(NULL);
     
+    return 1;
+}
+
+int fat32_write_dme(FAT32_FileSystem* fs, FAT32_Entry* entry, const void* data, uint32_t size, DistributedNode *node) {
+    requestToken(node);
+
+    if (!entry || !data || size == 0) return 0;
+    
+    uint32_t cluster = entry->startCluster;
+    uint32_t remaining = size;
+    const uint8_t* buffer = (const uint8_t*)data;
+    
+    while (remaining > 0 && cluster != 0xFFFFFFFF) {
+        uint32_t sector = cluster_to_sector(fs, cluster);
+        uint32_t writeSize = (remaining < CLUSTER_SIZE) ? remaining : CLUSTER_SIZE;
+        
+        memcpy(fs->data + sector * SECTOR_SIZE, buffer, writeSize);
+        
+        buffer += writeSize;
+        remaining -= writeSize;
+        cluster = get_next_cluster(fs, cluster);
+    }
+    
+    entry->fileSize = size;
+    entry->modificationTime = time(NULL);
+    
+    releaseToken(node);
     return 1;
 }
 
