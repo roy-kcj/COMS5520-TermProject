@@ -1,1 +1,12 @@
+Instruction Set
+1. make: to build all necessary files
+2. make run: to run the program
+3. There will be a list of commands for certain operations as detailed below,
 
+    'b': Execute bulk tests, in which [100, 200, 500, 1000, 2000] file sample size will be randomly generated and tested by inserting, accessing and also a large file insertion in the B+Tree file system.
+    'c': Performs basic CRUD operations on the filesystem to check its valid
+    'd': Simulated distributed mutual exclusion test with 3 nodes (threads) accessing the B+Tree
+    's': Sequential and Random Access Test (currently bugged and has been commented out)
+    'quit': exit program
+
+4. make clean: to clean up all generated files

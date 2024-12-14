@@ -2,12 +2,14 @@
 Implement B+Tree File System with Concurrency Controls for Readers Writers
 
 >>> 
-## Benchmark for B+ Tree over FAT32
-https://github.com/ryansturmer/thinfat32 
+## References for understanding how to implement and directions for a simple FAT32 Filesystem
+https://github.com/ryansturmer/thinfat32
+https://github.com/strawberryhacker/fat32 
 
 >>>
-## TO-DO List
-1. Reader Writer Mutex
-2. Basic Disk Struct
-3. B+Tree (Split, insert, delete)
-4. Test case for runtime, reader-writer concurrency
+## Setup Guide located in Documends -> UserManual.txt
+
+## References and Disclaimer
+Paper referenced from https://ieeexplore.ieee.org/document/7311953
+No code provided except idea of improvement to FAT32 using B+Tree
+All code were written by Aprameya V Madhwaraj, Ishaq Mustafa Khan, Roy Khoo
